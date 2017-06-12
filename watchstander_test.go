@@ -4,7 +4,7 @@ import "testing"
 
 func TestBasicPolicyDoc(t *testing.T) {
 	initialKey, err := NewSigningKey()
-	doc, err := NewPolicyDoc("id", initialKey)
+	doc, err := NewPolicyDoc(LocalPredicate("id"), initialKey)
 	if err != nil {
 		t.Fatalf("failed to initialize doc: %v", err)
 	}
@@ -15,16 +15,16 @@ func TestBasicPolicyDoc(t *testing.T) {
 
 func TestExtendedPolicyDoc(t *testing.T) {
 	initialKey, err := NewSigningKey()
-	doc, err := NewPolicyDoc("id", initialKey)
+	doc, err := NewPolicyDoc(LocalPredicate("id"), initialKey)
 	if err != nil {
 		t.Fatalf("failed to initialize doc: %v", err)
 	}
 
-	doc, err = Extend(doc, "predicate1")
+	doc, err = Extend(doc, LocalPredicate("predicate1"))
 	if err != nil {
 		t.Fatalf("failed to extend doc: %v", err)
 	}
-	doc, err = Extend(doc, "predicate2")
+	doc, err = Extend(doc, LocalPredicate("predicate2"))
 	if err != nil {
 		t.Fatalf("failed to extend doc: %v", err)
 	}
@@ -35,15 +35,15 @@ func TestExtendedPolicyDoc(t *testing.T) {
 
 func TestPolicyDocVerificationFailureModes(t *testing.T) {
 	initialKey, err := NewSigningKey()
-	doc, err := NewPolicyDoc("id", initialKey)
+	doc, err := NewPolicyDoc(LocalPredicate("id"), initialKey)
 	if err != nil {
 		t.Fatalf("failed to initialize doc: %v", err)
 	}
-	doc1, err := Extend(doc, "predicate1")
+	doc1, err := Extend(doc, LocalPredicate("predicate1"))
 	if err != nil {
 		t.Fatalf("failed to extend doc: %v", err)
 	}
-	doc2, err := Extend(doc1, "predicate2")
+	doc2, err := Extend(doc1, LocalPredicate("predicate2"))
 	if err != nil {
 		t.Fatalf("failed to extend doc: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestPolicyDocVerificationFailureModes(t *testing.T) {
 
 	// try to add a predicate without the correct extension key
 	doc1.ExtensionKey = extraKey
-	evilDoc, err := Extend(doc1, "evil_predicate")
+	evilDoc, err := Extend(doc1, LocalPredicate("evil_predicate"))
 	if err != nil {
 		t.Fatalf("failed to extend doc: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestPolicyDocVerificationFailureModes(t *testing.T) {
 
 	// try to extend a doc without an extension key
 	doc.ExtensionKey = nil
-	_, err = Extend(doc, "nope")
+	_, err = Extend(doc, LocalPredicate("nope"))
 	if err == nil {
 		t.Fatalf("extend should have failed")
 	}

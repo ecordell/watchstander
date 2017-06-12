@@ -2,58 +2,11 @@ package watchstander
 
 import (
 	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
-	"math/big"
+	"crypto/elliptic"
 )
-
-// Primitives - https://github.com/gtank/cryptopasta/blob/master/sign.go
-
-func NewSigningKey() (*ecdsa.PrivateKey, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	return key, err
-}
-
-// Sign signs arbitrary data using ECDSA.
-func Sign(data []byte, privkey *ecdsa.PrivateKey) ([]byte, error) {
-	// hash message
-	digest := sha256.Sum256(data)
-
-	// sign the hash
-	r, s, err := ecdsa.Sign(rand.Reader, privkey, digest[:])
-	if err != nil {
-		return nil, err
-	}
-
-	// encode the signature {R, S}
-	// big.Int.Bytes() will need padding in the case of leading zero bytes
-	params := privkey.Curve.Params()
-	curveOrderByteSize := params.P.BitLen() / 8
-	rBytes, sBytes := r.Bytes(), s.Bytes()
-	signature := make([]byte, curveOrderByteSize*2)
-	copy(signature[curveOrderByteSize-len(rBytes):], rBytes)
-	copy(signature[curveOrderByteSize*2-len(sBytes):], sBytes)
-
-	return signature, nil
-}
-
-// Verify checks a raw ECDSA signature.
-// Returns true if it's valid and false if not.
-func Verify(data, signature []byte, pubkey *ecdsa.PublicKey) bool {
-	digest := sha256.Sum256(data)
-
-	curveOrderByteSize := pubkey.Curve.Params().P.BitLen() / 8
-
-	r, s := new(big.Int), new(big.Int)
-	r.SetBytes(signature[:curveOrderByteSize])
-	s.SetBytes(signature[curveOrderByteSize:])
-
-	return ecdsa.Verify(pubkey, digest[:], r, s)
-}
 
 // Policy Doc definitions
 type PolicyDoc struct {
@@ -66,8 +19,8 @@ type PolicyDoc struct {
 }
 
 // NewPolicyDoc creates a new doc from an initial predicate and a root key
-func NewPolicyDoc(identifier string, initialKey *ecdsa.PrivateKey) (*PolicyDoc, error) {
-	initialSignature, err := Sign([]byte(identifier), initialKey)
+func NewPolicyDoc(identifier Predicate, initialKey *ecdsa.PrivateKey) (*PolicyDoc, error) {
+	initialSignature, err := Sign([]byte(identifier.String()), initialKey)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +41,7 @@ func NewPolicyDoc(identifier string, initialKey *ecdsa.PrivateKey) (*PolicyDoc, 
 	}
 
 	return &PolicyDoc{
-		Predicates:                [][]byte{[]byte(identifier)},
+		Predicates:                [][]byte{[]byte(identifier.String())},
 		PredicateSignatures:       [][]byte{initialSignature},
 		VerificationKeySignatures: [][]byte{initialPubKeySignature},
 		Signature:                 initialSignature,
@@ -105,18 +58,25 @@ func (d *PolicyDoc) RemoveExtensionKey() {
 // VerifySignatures verifies the integrity of a doc given a root public key
 // It does not verify the contents of the predicates
 func (d *PolicyDoc) VerifySignatures(verificationKey *ecdsa.PublicKey) bool {
+	// Quick hack to deal with gob encoding - force P256
+	verificationKey.Curve = elliptic.P256()
+
+	encodedVerificationKey, err := x509.MarshalPKIXPublicKey(verificationKey)
+	if err != nil {
+		fmt.Printf("unable to encode verification key: %v\n", err)
+	}
+
 	// Verify verification keys
 	for i, v := range d.VerificationKeys {
+		encodedPub, err := x509.MarshalPKIXPublicKey(v)
+		if err != nil {
+			fmt.Printf("unable to encode key: %v\n", err)
+		}
 		if i == 0 {
-			if v != verificationKey {
-				fmt.Println("initial key doesn't match")
+			if string(encodedPub) != string(encodedVerificationKey) {
 				return false
 			}
 		} else {
-			encodedPub, err := x509.MarshalPKIXPublicKey(v)
-			if err != nil {
-				fmt.Printf("unable to encode key: %v\n", err)
-			}
 			if !Verify(encodedPub, d.VerificationKeySignatures[i-1], d.VerificationKeys[i-1]) {
 				fmt.Printf("couldn't verify key %v\n", hex.EncodeToString(encodedPub))
 				return false
@@ -150,16 +110,16 @@ func (d PolicyDoc) String() string {
 }
 
 // Extend creates a new policy doc, extended with the predicate added
-func Extend(d *PolicyDoc, predicate string) (*PolicyDoc, error) {
+func Extend(d *PolicyDoc, predicate Predicate) (*PolicyDoc, error) {
 	if d.ExtensionKey == nil {
 		return nil, fmt.Errorf("No extension key, cannot extend.")
 	}
 
 	// Add the predicate to the list
-	predicates := append(d.Predicates, []byte(predicate))
+	predicates := append(d.Predicates, []byte(predicate.String()))
 
 	// Sign the predicate with the current extension key
-	predicateSignature, err := Sign([]byte(predicate), d.ExtensionKey)
+	predicateSignature, err := Sign([]byte(predicate.String()), d.ExtensionKey)
 	if err != nil {
 		return nil, err
 	}
